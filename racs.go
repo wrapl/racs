@@ -172,6 +172,7 @@ type project struct {
 	scanners       []*project
 	commit         string
 	tag            string
+	group          string
 }
 
 type broker struct {
@@ -804,7 +805,7 @@ func projectCreate(name, url, branch, labels string) *project {
 		make(chan taskRequest, 10),
 		make(map[*project]trigger),
 		make(map[string]*credential),
-		nil, nil, nil, make([]*project, 0), "", "",
+		nil, nil, nil, make([]*project, 0), "", "", "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -928,6 +929,7 @@ func projectList() []map[string]interface{} {
 			"triggers":       triggers,
 			"environment":    environment,
 			"tag":            p.tag,
+			"group":          p.group,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1070,7 +1072,7 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 		Name:    "RACS_TOKEN",
 		Value:   hex.EncodeToString(out),
 		Path:    "/",
-		Expires: time.Now().Add(24 * time.Hour),
+		Expires: time.Now().Add(28 * time.Hour),
 	}
 	http.SetCookie(w, &cookie)
 	action := params["action"]
@@ -1310,6 +1312,7 @@ func projectUpdateEvent(p *project) {
 		"triggers":       triggers,
 		"environment":    environment,
 		"tag":            p.tag,
+		"group":          p.group,
 	})
 }
 
@@ -1342,9 +1345,10 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			p.packageSpec = ""
 		}
 		p.tag = params["tag"]
+		p.group = params["group"]
 		p.protected = params["protected"] != ""
-		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.id)
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, "group" = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.group, p.id)
 		projectUpdateEvent(p)
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -2268,7 +2272,7 @@ func main() {
 		cr := &credential{id, name, credentialDecrypt(value), project, request, time.Unix(expiry, 0), time.Unix(updated, 0), description}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tag FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tag, "group" FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -2283,7 +2287,8 @@ func main() {
 		var version int
 		var protected int
 		var tag string
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &state, &version, &protected, &tag)
+		var group string
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &state, &version, &protected, &tag, &group)
 		if err != nil {
 			logger.Error(err)
 		}
@@ -2296,7 +2301,7 @@ func main() {
 			make(chan taskRequest, 10),
 			make(map[*project]trigger),
 			make(map[string]*credential),
-			nil, nil, nil, make([]*project, 0), "", tag,
+			nil, nil, nil, make([]*project, 0), "", tag, group,
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {

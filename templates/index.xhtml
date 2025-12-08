@@ -186,6 +186,18 @@
 				</div>
 				<div class="field is-horizontal">
 					<div class="field-label is-normal">
+						<label class="label">Group</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="group"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
 						<label class="label">URL</label>
 					</div>
 					<div class="field-body">
@@ -261,6 +273,18 @@
 								<div class="field">
 									<div class="control is-expanded">
 										<input class="input" type="text" name="labels" id="update_labels"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Group</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" type="text" name="group" id="update_group"/>
 									</div>
 								</div>
 							</div>
@@ -751,6 +775,7 @@
 			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
 			document.getElementById("update_labels").value = this.labels;
+			document.getElementById("update_group").value = this.group;
 			document.getElementById("update_url").value = this.url;
 			document.getElementById("update_branch").value = this.branch;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
@@ -1044,7 +1069,9 @@
 		}
 
 		var container = document.getElementById("projects");
+		var mainGroup = {container};
 		var projects = [];
+		var groups = {"": mainGroup};
 		var tasks = [];
 		var registries = [];
 		var credentials = [];
@@ -1146,19 +1173,18 @@
 
 		function filterProjects() {
 			var nameFilter = document.getElementById("name-filter").value.toLowerCase();
-			function visible(element) {
+			function visible(project) {
 				for (var label in labels) {
-					if (labels[label].checked &amp;&amp; (element.labels.indexOf(label) === -1)) {
+					if (labels[label].checked &amp;&amp; (project.labels.indexOf(label) === -1)) {
 						return false;
 					}
 				}
-				if (element.name.indexOf(nameFilter) === -1) return false;
+				if (project.name.indexOf(nameFilter) === -1) return false;
 				return true;
 			}
-			var cards = container.children;
-			for (var i = 0; i &lt; cards.length; ++i) {
-				cards[i].style.setProperty("display", visible(cards[i]) ? null : "none", "important");
-			}
+			projects.forEach(project => {
+				project.card.style.setProperty("display", visible(project) ? null : "none", "important");
+			});
 			var filterCount = 0;
 			for (var label in labels) if (labels[label].checked) {
 				filterCount++;
@@ -1212,6 +1238,26 @@
 			TAG_SUCCESS: 33
 		};
 
+		function findGroup(path) {
+			var group = groups[path];
+			if (group) return group;
+			let index = path.lastIndexOf("/");
+			let name = index >= 0 ? path.substring(index + 1) : path;
+			group = {};
+			group.container =  create("div", {"class": "container"});
+			group.element = create("div", {"class": "group"},
+				create("div", {"class": "label"}, name),
+				group.container
+			);
+			if (index >= 0) {
+				let parent = findGroup(path.substring(0, index));
+				parent.container.appendChild(group.element);
+			} else {
+				container.append(group.element);
+			}
+			return group;
+		}
+
 		function updateProject(result) {
 			var project = projects[result.id];
 			if (!project) {
@@ -1259,10 +1305,10 @@
 					create("div.build-menu", buildMenu),
 					create("div", project.state)
 				);
-				project.card.name = result.name.toLowerCase();
-				project.card.labels = labels;
+				project.name = result.name.toLowerCase();
+				project.labels = labels;
 				name.onclick = showSettings.bind(project.data);
-				container.appendChild(project.card);
+				findGroup(result.group).container.appendChild(project.card);
 			}
 			for (var key in result) {
 				project.data[key] = result[key];
