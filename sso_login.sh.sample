@@ -1,0 +1,5 @@
+#!/bin/bash
+
+echo "Client id = $CLIENT_ID" >&2
+
+echo "someone"

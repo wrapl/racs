@@ -945,6 +945,17 @@ type user struct {
 	Roles []string
 }
 
+type sso_config struct {
+	Login_url     string
+	Server_url    string
+	Client_id     string
+	Client_secret string
+	Users         map[string]string
+}
+
+var sso sso_config
+var use_sso bool = false
+
 func renderLogin(w http.ResponseWriter, path string, params map[string]string) {
 	loginTemplate, _ := template.ParseFiles(staticPath + "/login.xhtml")
 	w.Header().Add("Content-Type", "application/xhtml+xml")
@@ -958,8 +969,10 @@ func renderLogin(w http.ResponseWriter, path string, params map[string]string) {
 		sep = "&"
 	}
 	err := loginTemplate.Execute(w, map[string]interface{}{
-		"action": path,
-		"params": sb.String(),
+		"action":  path,
+		"params":  sb.String(),
+		"use_sso": use_sso,
+		"sso_url": sso.Login_url + "?response_type=code&client_id=" + url.QueryEscape(sso.Client_id),
 	})
 	if err != nil {
 		logger.Error(err)
@@ -983,6 +996,11 @@ func checkLogin(u *user, role string, w http.ResponseWriter, path string, params
 	}
 	renderLogin(w, path, params)
 	return true
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	redirect := params["redirect"]
+	renderLogin(w, "redirect", map[string]string{"redirect": redirect})
 }
 
 func handleEvents(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
@@ -1035,28 +1053,57 @@ func handleEvents(w http.ResponseWriter, r *http.Request, u *user, params map[st
 func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	username := params["username"]
 	password := params["password"]
-	tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
-		switch s {
-		case pam.PromptEchoOn:
-			return username, nil
-		case pam.PromptEchoOff:
-			return password, nil
+	sso_code := params["sso_code"]
+	if use_sso && len(sso_code) > 0 {
+		command := "./sso_login.sh"
+		args := []string{}
+		env := []string{
+			fmt.Sprintf("SSO_CODE=%s", sso_code),
+			fmt.Sprintf("SERVER_URL=%s", sso.Server_url),
+			fmt.Sprintf("CLIENT_ID=%s", sso.Client_id),
+			fmt.Sprintf("CLIENT_SECRET=%s", sso.Client_secret),
 		}
-		return "", errors.New("Unrecognized message")
-	})
-	if err != nil {
-		logger.Error(err)
-	}
-	err = tr.SetItem(pam.Ruser, username)
-	if err != nil {
-		logger.Error(err)
-	}
-	err = tr.Authenticate(0)
-	if err != nil {
-		logger.Error(err)
-		w.WriteHeader(401)
-		w.Write([]byte(err.Error()))
-		return
+		cmd := exec.Command(command, args...)
+		cmd.Env = append(cmd.Environ(), env...)
+		username0, err := cmd.Output()
+		if err != nil {
+			logger.Error(err)
+			w.WriteHeader(401)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		username = strings.TrimSpace(string(username0))
+		role := sso.Users[username]
+		if len(role) == 0 {
+			logger.Errorf("Unknown user %s", username)
+			w.WriteHeader(401)
+			w.Write([]byte(fmt.Sprintf("Unknown user %s", username)))
+			return
+		}
+	} else {
+		tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
+			switch s {
+			case pam.PromptEchoOn:
+				return username, nil
+			case pam.PromptEchoOff:
+				return password, nil
+			}
+			return "", errors.New("Unrecognized message")
+		})
+		if err != nil {
+			logger.Error(err)
+		}
+		err = tr.SetItem(pam.Ruser, username)
+		if err != nil {
+			logger.Error(err)
+		}
+		err = tr.Authenticate(0)
+		if err != nil {
+			logger.Error(err)
+			w.WriteHeader(401)
+			w.Write([]byte(err.Error()))
+			return
+		}
 	}
 	u2 := user{username, []string{"admin", "user"}}
 	gcm, _ := cipher.NewGCM(ciph)
@@ -1076,17 +1123,18 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 	}
 	http.SetCookie(w, &cookie)
 	action := params["action"]
-	redirect := params["redirect"]
 	if len(action) > 0 {
 		query, _ := url.ParseQuery(params["params"])
 		params := make(map[string]string)
 		for name, values := range query {
 			params[name] = values[0]
 		}
-		handleAction(action, w, r, &u2, params)
-	} else if len(redirect) > 0 {
-		w.Header().Add("Location", redirect)
-		w.WriteHeader(303)
+		if action == "redirect" {
+			w.Header().Add("Location", params["redirect"])
+			w.WriteHeader(303)
+		} else {
+			handleAction(action, w, r, &u2, params)
+		}
 	} else {
 		w.WriteHeader(200)
 		w.Write([]byte(username))
@@ -2154,12 +2202,26 @@ func main() {
 	var sslCert, sslKey string
 	var port int
 	var limit int64
+	var ssoConfig string
 	flag.StringVar(&sslCert, "ssl-cert", "", "SSL cert")
 	flag.StringVar(&sslKey, "ssl-key", "", "SSL key")
 	flag.BoolVar(&noLogin, "no-login", false, "Allow all actions without login")
 	flag.IntVar(&port, "port", 8080, "Web server port")
 	flag.Int64Var(&limit, "limit", 8, "Job limit")
+	flag.StringVar(&ssoConfig, "sso-config", "", "SSO config file")
 	flag.Parse()
+
+	if len(ssoConfig) > 0 {
+		content, err := ioutil.ReadFile(ssoConfig)
+		if err != nil {
+			logger.Fatal("Error when opening file: ", err)
+		}
+		err = json.Unmarshal(content, &sso)
+		if err != nil {
+			logger.Fatal("Error when opening file: ", err)
+		}
+		use_sso = true
+	}
 
 	logger.Infof("Set job limit to %d", limit)
 
@@ -2440,6 +2502,7 @@ func main() {
 	templates, _ = template.ParseGlob("templates/*")
 
 	handlers["/events"] = handleEvents
+	handlers["/login"] = handleLogin
 	handlers["/user/current"] = handleUserCurrent
 	handlers["/user/login"] = handleUserLogin
 	handlers["/user/logout"] = handleUserLogout

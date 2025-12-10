@@ -25,9 +25,9 @@
 	<meta name="theme-color" content="#ffffff"/>
 </head>
 <body>
-	<div class="modal is-active" id="login">
+	<div class="modal is-active">
 		<div class="modal-background"/>
-		<form class="modal-card" action="/user/login" method="POST">
+		<form class="modal-card" action="/user/login" method="POST" id="login">
 			<header class="modal-card-head">
 				<p class="modal-card-title">Login</p>
 				<button class="delete" aria-label="close" type="reset"/>
@@ -35,6 +35,7 @@
 			<section class="modal-card-body">
 				<input type="hidden" name="action" value="{{.action}}"/>
 				<input type="hidden" name="params" value="{{.params | html}}"/>
+				{{if .use_sso}}<input type="hidden" name="sso_code" id="sso_code"/>{{end}}
 				<div class="field is-horizontal">
 					<div class="field-label is-normal">
 						<label class="label">User Name</label>
@@ -63,9 +64,23 @@
 			<footer class="modal-card-foot">
 				<span style="flex:1 1;"/>
 				<button class="button" type="reset" onclick="window.history.back();">Cancel</button>
+				{{if .use_sso}}<button class="button is-info" onclick="sso_login(event)" type="reset">SSO</button>{{end}}
 				<button class="button is-primary" type="submit">Login</button>
 			</footer>
 		</form>
 	</div>
+	<script>
+		function sso_login(event) {
+			event.preventDefault();
+			let child = open("{{.sso_url | html}}&amp;redirect_uri=" + location.origin + "/sso.xhtml", "_blank", "popup");
+		}
+
+		window.sso_callback = function(data) {
+			let url = new URL(data);
+			console.log(url.searchParams.get("state"));
+			document.getElementById("sso_code").value = url.searchParams.get("code");
+			document.getElementById("login").submit();
+		};
+	</script>
 </body>
 </html>

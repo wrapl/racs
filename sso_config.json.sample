@@ -1,0 +1,9 @@
+{
+	"client_id": "<client_id>",
+	"client_secret": "<client_secret>",
+	"login_url": "<login_url>",
+	"server_url": "<server_url>",
+	"users": {
+		"<user>": "admin"
+	}
+}

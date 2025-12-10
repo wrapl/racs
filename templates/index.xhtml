@@ -549,47 +549,6 @@
 			</footer>
 		</div>
 	</div>
-	<div class="modal" id="login">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/user/login" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Login</p>
-				<button class="delete" aria-label="close" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<div class="field is-horizontal">
-					<div class="field-label is-normal">
-						<label class="label">User Name</label>
-					</div>
-					<div class="field-body">
-						<div class="field">
-							<div class="control is-expanded">
-								<input class="input" name="username"/>
-							</div>
-						</div>
-					</div>
-				</div>
-				<div class="field is-horizontal">
-					<div class="field-label is-normal">
-					<label class="label">Password</label>
-					</div>
-					<div class="field-body">
-						<div class="field">
-							<div class="control is-expanded">
-								<input class="input" type="password" name="password"/>
-							</div>
-						</div>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideLogin()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Login</button>
-			</footer>
-		</form>
-	</div>
 	<div class="modal" id="logout">
 		<div class="modal-background"/>
 		<form class="modal-card" action="/user/logout" method="POST">
@@ -969,13 +928,7 @@
 		}
 
 		function showLogin() {
-			var modal = document.getElementById("login");
-			modal.addClass("is-active");
-		}
-
-		function hideLogin() {
-			var modal = document.getElementById("login");
-			modal.removeClass("is-active");
+			location = `/login?redirect=${location.pathname}`
 		}
 
 		function showLogout() {
@@ -1243,7 +1196,7 @@
 			if (group) return group;
 			let index = path.lastIndexOf("/");
 			let name = index >= 0 ? path.substring(index + 1) : path;
-			group = {};
+			group = groups[path] = {};
 			group.container =  create("div", {"class": "container"});
 			group.element = create("div", {"class": "group"},
 				create("div", {"class": "label"}, name),

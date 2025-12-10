@@ -26,6 +26,21 @@
 	<meta name="theme-color" content="#ffffff"/>
 </head>
 <body class="has-background-warning-light" style="min-height:100vh;padding:0;">
+	<div class="modal" id="logout">
+		<div class="modal-background"/>
+		<form class="modal-card" action="/user/logout" method="POST">
+			<input type="hidden" name="redirect" value="/"/>
+			<header class="modal-card-head">
+				<p class="modal-card-title">Logout</p>
+				<button class="delete" aria-label="close" type="reset"/>
+			</header>
+			<footer class="modal-card-foot">
+				<span style="flex:1 1;"/>
+				<button class="button" onclick="hideLogout()" type="reset">Cancel</button>
+				<button class="button is-primary" type="submit">Logout</button>
+			</footer>
+		</form>
+	</div>
 	<nav class="navbar is-radiusless" role="navigation" aria-label="main navigation" style="position:sticky;top:0">
 		<div class="navbar-brand">
 			<a class="navbar-item" href="/">
@@ -62,6 +77,15 @@
 		<img src="/project/graph"/>
 	</div>
 	<script type="text/javascript">
+		function showLogin() {
+			location = `/login?redirect=${location.pathname}`
+		}
+
+		function showLogout() {
+			var modal = document.getElementById("logout");
+			modal.addClass("is-active");
+		}
+
 		fetch("/user/current").then(response => response.text()).then(name => {
 			console.log("User = ", name);
 			window.user = name;
