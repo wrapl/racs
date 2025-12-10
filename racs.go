@@ -950,6 +950,7 @@ type sso_config struct {
 	Server_url    string
 	Client_id     string
 	Client_secret string
+	Scopes        string
 	Users         map[string]string
 }
 
@@ -972,7 +973,7 @@ func renderLogin(w http.ResponseWriter, path string, params map[string]string) {
 		"action":  path,
 		"params":  sb.String(),
 		"use_sso": use_sso,
-		"sso_url": sso.Login_url + "?response_type=code&client_id=" + url.QueryEscape(sso.Client_id),
+		"sso_url": sso.Login_url + "?response_type=code&scopes=" + url.QueryEscape(sso.Scopes) + "&client_id=" + url.QueryEscape(sso.Client_id),
 	})
 	if err != nil {
 		logger.Error(err)

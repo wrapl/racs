@@ -3,6 +3,7 @@
 	"client_secret": "<client_secret>",
 	"login_url": "<login_url>",
 	"server_url": "<server_url>",
+	"scopes": "default",
 	"users": {
 		"<user>": "admin"
 	}
