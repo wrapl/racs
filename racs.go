@@ -946,6 +946,7 @@ type user struct {
 }
 
 type sso_config struct {
+	Sso_script    string
 	Login_url     string
 	Server_url    string
 	Client_id     string
@@ -1056,7 +1057,7 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 	password := params["password"]
 	sso_code := params["sso_code"]
 	if use_sso && len(sso_code) > 0 {
-		command := "./sso_login.sh"
+		command := sso.Sso_script
 		args := []string{}
 		env := []string{
 			fmt.Sprintf("SSO_CODE=%s", sso_code),

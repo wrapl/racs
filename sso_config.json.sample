@@ -1,4 +1,5 @@
 {
+	"sso_script": "<sso_login.sh>",
 	"client_id": "<client_id>",
 	"client_secret": "<client_secret>",
 	"login_url": "<login_url>",
