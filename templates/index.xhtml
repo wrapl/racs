@@ -1108,9 +1108,16 @@
 			container.scrollTop = container.scrollHeight;
 		}
 
+		const paramsString = window.location.search;
+		const searchParams = new URLSearchParams(paramsString);
+		const queryFilters = searchParams.getAll("filter");
+
 		document.getElementById("name-filter").oninput = filterProjects;
 
-		var filter = JSON.parse(localStorage.getItem("filter") || "{}");
+		var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
+		if (queryFilters.length > 0) {
+			filter = queryFilters.reduce((a, x) => (a[x] = true, a), {});
+		}
 		var labels = {};
 
 		function labelTag(label) {
