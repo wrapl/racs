@@ -112,6 +112,7 @@
 
 		#task_list .task {
 			margin: auto;
+			overflow-x: hidden;
 		}
 
 		.project progress {
@@ -147,6 +148,11 @@
 
 		th.rotate > div > div {
 			width: 6em;
+		}
+
+		#labels_dropdown {
+			max-height: 90vh;
+			overflow-y: scroll;
 		}
 	</style>
 </head>
@@ -1090,7 +1096,7 @@
 
 		document.getElementById("name-filter").oninput = filterProjects;
 
-		var filter = JSON.parse(localStorage.getItem("filter") || "{}");
+		var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
 		var labels = {};
 
 		function labelTag(label) {
@@ -1346,6 +1352,13 @@
 		}
 
 		connectEvents();
+
+		window.onkeydown = ((e) => {
+			if (e.key === "Escape") {
+				hideProjectSettings();
+				hideTaskLogs();
+			}
+		});
 	</script>
 </body>
 </html>
