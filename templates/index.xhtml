@@ -1148,7 +1148,7 @@
 			for (var label in labels) if (labels[label].checked) {
 				filterCount++;
 			}
-			localStorage.setItem("filter", JSON.stringify(filter));
+			sessionStorage.setItem("filter", JSON.stringify(filter));
 			var filterLabel = document.getElementById("filter-label");
 			if (filterCount > 0) {
 				filterLabel.textContent = `Filter (${filterCount})`;
