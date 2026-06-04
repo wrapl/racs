@@ -110,8 +110,9 @@
 			text-align: right;
 		}
 
-		#task_list .task {
+		.task {
 			margin: auto;
+			overflow-x: hidden;
 		}
 
 		.project progress {
@@ -148,6 +149,11 @@
 		th.rotate > div > div {
 			width: 6em;
 		}
+
+		#labels_dropdown {
+			max-height: 90vh;
+			overflow-y: scroll;
+		}
 	</style>
 </head>
 <body class="has-background-warning-light" style="min-height:100vh;padding:0;">
@@ -180,6 +186,18 @@
 						<div class="field">
 							<div class="control is-expanded">
 								<input class="input" name="labels"/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal">
+					<div class="field-label is-normal">
+						<label class="label">Group</label>
+					</div>
+					<div class="field-body">
+						<div class="field">
+							<div class="control is-expanded">
+								<input class="input" name="group"/>
 							</div>
 						</div>
 					</div>
@@ -261,6 +279,18 @@
 								<div class="field">
 									<div class="control is-expanded">
 										<input class="input" type="text" name="labels" id="update_labels"/>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="field is-horizontal">
+							<div class="field-label is-normal">
+								<label class="label">Group</label>
+							</div>
+							<div class="field-body">
+								<div class="field">
+									<div class="control is-expanded">
+										<input class="input" type="text" name="group" id="update_group"/>
 									</div>
 								</div>
 							</div>
@@ -525,47 +555,6 @@
 			</footer>
 		</div>
 	</div>
-	<div class="modal" id="login">
-		<div class="modal-background"/>
-		<form class="modal-card" action="/user/login" method="POST">
-			<header class="modal-card-head">
-				<p class="modal-card-title">Login</p>
-				<button class="delete" aria-label="close" type="reset"/>
-			</header>
-			<section class="modal-card-body">
-				<input type="hidden" name="redirect" value="/"/>
-				<div class="field is-horizontal">
-					<div class="field-label is-normal">
-						<label class="label">User Name</label>
-					</div>
-					<div class="field-body">
-						<div class="field">
-							<div class="control is-expanded">
-								<input class="input" name="username"/>
-							</div>
-						</div>
-					</div>
-				</div>
-				<div class="field is-horizontal">
-					<div class="field-label is-normal">
-					<label class="label">Password</label>
-					</div>
-					<div class="field-body">
-						<div class="field">
-							<div class="control is-expanded">
-								<input class="input" type="password" name="password"/>
-							</div>
-						</div>
-					</div>
-				</div>
-			</section>
-			<footer class="modal-card-foot">
-				<span style="flex:1 1;"/>
-				<button class="button" onclick="hideLogin()" type="reset">Cancel</button>
-				<button class="button is-primary" type="submit">Login</button>
-			</footer>
-		</form>
-	</div>
 	<div class="modal" id="logout">
 		<div class="modal-background"/>
 		<form class="modal-card" action="/user/logout" method="POST">
@@ -751,6 +740,7 @@
 			document.getElementById("update_id").value = this.id;
 			document.getElementById("update_name").value = this.name;
 			document.getElementById("update_labels").value = this.labels;
+			document.getElementById("update_group").value = this.group;
 			document.getElementById("update_url").value = this.url;
 			document.getElementById("update_branch").value = this.branch;
 			document.getElementById("update_buildSpec").value = this.buildSpec;
@@ -944,13 +934,7 @@
 		}
 
 		function showLogin() {
-			var modal = document.getElementById("login");
-			modal.addClass("is-active");
-		}
-
-		function hideLogin() {
-			var modal = document.getElementById("login");
-			modal.removeClass("is-active");
+			location = `/login?redirect=${location.pathname}`
 		}
 
 		function showLogout() {
@@ -1044,7 +1028,9 @@
 		}
 
 		var container = document.getElementById("projects");
+		var mainGroup = {container};
 		var projects = [];
+		var groups = {"": mainGroup};
 		var tasks = [];
 		var registries = [];
 		var credentials = [];
@@ -1110,7 +1096,7 @@
 
 		document.getElementById("name-filter").oninput = filterProjects;
 
-		var filter = JSON.parse(localStorage.getItem("filter") || "{}");
+		var filter = JSON.parse(sessionStorage.getItem("filter") || "{}");
 		var labels = {};
 
 		function labelTag(label) {
@@ -1146,24 +1132,23 @@
 
 		function filterProjects() {
 			var nameFilter = document.getElementById("name-filter").value.toLowerCase();
-			function visible(element) {
+			function visible(project) {
 				for (var label in labels) {
-					if (labels[label].checked &amp;&amp; (element.labels.indexOf(label) === -1)) {
+					if (labels[label].checked &amp;&amp; (project.labels.indexOf(label) === -1)) {
 						return false;
 					}
 				}
-				if (element.name.indexOf(nameFilter) === -1) return false;
+				if (project.name.indexOf(nameFilter) === -1) return false;
 				return true;
 			}
-			var cards = container.children;
-			for (var i = 0; i &lt; cards.length; ++i) {
-				cards[i].style.setProperty("display", visible(cards[i]) ? null : "none", "important");
-			}
+			projects.forEach(project => {
+				project.card.style.setProperty("display", visible(project) ? null : "none", "important");
+			});
 			var filterCount = 0;
 			for (var label in labels) if (labels[label].checked) {
 				filterCount++;
 			}
-			localStorage.setItem("filter", JSON.stringify(filter));
+			sessionStorage.setItem("filter", JSON.stringify(filter));
 			var filterLabel = document.getElementById("filter-label");
 			if (filterCount > 0) {
 				filterLabel.textContent = `Filter (${filterCount})`;
@@ -1212,6 +1197,26 @@
 			TAG_SUCCESS: 33
 		};
 
+		function findGroup(path) {
+			var group = groups[path];
+			if (group) return group;
+			let index = path.lastIndexOf("/");
+			let name = index >= 0 ? path.substring(index + 1) : path;
+			group = groups[path] = {};
+			group.container =  create("div", {"class": "container"});
+			group.element = create("div", {"class": "group"},
+				create("div", {"class": "label"}, name),
+				group.container
+			);
+			if (index >= 0) {
+				let parent = findGroup(path.substring(0, index));
+				parent.container.appendChild(group.element);
+			} else {
+				container.append(group.element);
+			}
+			return group;
+		}
+
 		function updateProject(result) {
 			var project = projects[result.id];
 			if (!project) {
@@ -1259,10 +1264,10 @@
 					create("div.build-menu", buildMenu),
 					create("div", project.state)
 				);
-				project.card.name = result.name.toLowerCase();
-				project.card.labels = labels;
+				project.name = result.name.toLowerCase();
+				project.labels = labels;
 				name.onclick = showSettings.bind(project.data);
-				container.appendChild(project.card);
+				findGroup(result.group).container.appendChild(project.card);
 			}
 			for (var key in result) {
 				project.data[key] = result[key];
@@ -1347,6 +1352,13 @@
 		}
 
 		connectEvents();
+
+		window.onkeydown = ((e) => {
+			if (e.key === "Escape") {
+				hideProjectSettings();
+				hideTaskLogs();
+			}
+		});
 	</script>
 </body>
 </html>

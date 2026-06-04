@@ -172,6 +172,7 @@ type project struct {
 	scanners       []*project
 	commit         string
 	tag            string
+	group          string
 }
 
 type broker struct {
@@ -804,7 +805,7 @@ func projectCreate(name, url, branch, labels string) *project {
 		make(chan taskRequest, 10),
 		make(map[*project]trigger),
 		make(map[string]*credential),
-		nil, nil, nil, make([]*project, 0), "", "",
+		nil, nil, nil, make([]*project, 0), "", "", "",
 	}
 	projects[p.id] = p
 	go projectRoutine(p)
@@ -928,6 +929,7 @@ func projectList() []map[string]interface{} {
 			"triggers":       triggers,
 			"environment":    environment,
 			"tag":            p.tag,
+			"group":          p.group,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -943,6 +945,19 @@ type user struct {
 	Roles []string
 }
 
+type sso_config struct {
+	Sso_script    string
+	Login_url     string
+	Server_url    string
+	Client_id     string
+	Client_secret string
+	Scopes        string
+	Users         map[string]string
+}
+
+var sso sso_config
+var use_sso bool = false
+
 func renderLogin(w http.ResponseWriter, path string, params map[string]string) {
 	loginTemplate, _ := template.ParseFiles(staticPath + "/login.xhtml")
 	w.Header().Add("Content-Type", "application/xhtml+xml")
@@ -956,8 +971,10 @@ func renderLogin(w http.ResponseWriter, path string, params map[string]string) {
 		sep = "&"
 	}
 	err := loginTemplate.Execute(w, map[string]interface{}{
-		"action": path,
-		"params": sb.String(),
+		"action":  path,
+		"params":  sb.String(),
+		"use_sso": use_sso,
+		"sso_url": sso.Login_url + "?response_type=code&scope=" + url.QueryEscape(sso.Scopes) + "&client_id=" + url.QueryEscape(sso.Client_id),
 	})
 	if err != nil {
 		logger.Error(err)
@@ -981,6 +998,11 @@ func checkLogin(u *user, role string, w http.ResponseWriter, path string, params
 	}
 	renderLogin(w, path, params)
 	return true
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
+	redirect := params["redirect"]
+	renderLogin(w, "redirect", map[string]string{"redirect": redirect})
 }
 
 func handleEvents(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
@@ -1033,28 +1055,57 @@ func handleEvents(w http.ResponseWriter, r *http.Request, u *user, params map[st
 func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map[string]string) {
 	username := params["username"]
 	password := params["password"]
-	tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
-		switch s {
-		case pam.PromptEchoOn:
-			return username, nil
-		case pam.PromptEchoOff:
-			return password, nil
+	sso_code := params["sso_code"]
+	if use_sso && len(sso_code) > 0 {
+		command := sso.Sso_script
+		args := []string{}
+		env := []string{
+			fmt.Sprintf("SSO_CODE=%s", sso_code),
+			fmt.Sprintf("SERVER_URL=%s", sso.Server_url),
+			fmt.Sprintf("CLIENT_ID=%s", sso.Client_id),
+			fmt.Sprintf("CLIENT_SECRET=%s", sso.Client_secret),
 		}
-		return "", errors.New("Unrecognized message")
-	})
-	if err != nil {
-		logger.Error(err)
-	}
-	err = tr.SetItem(pam.Ruser, username)
-	if err != nil {
-		logger.Error(err)
-	}
-	err = tr.Authenticate(0)
-	if err != nil {
-		logger.Error(err)
-		w.WriteHeader(401)
-		w.Write([]byte(err.Error()))
-		return
+		cmd := exec.Command(command, args...)
+		cmd.Env = append(cmd.Environ(), env...)
+		username0, err := cmd.Output()
+		if err != nil {
+			logger.Error(err)
+			w.WriteHeader(401)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		username = strings.TrimSpace(string(username0))
+		role := sso.Users[username]
+		if len(role) == 0 {
+			logger.Errorf("Unknown user %s", username)
+			w.WriteHeader(401)
+			w.Write([]byte(fmt.Sprintf("Unknown user %s", username)))
+			return
+		}
+	} else {
+		tr, err := pam.StartFunc("sudo", username, func(s pam.Style, msg string) (string, error) {
+			switch s {
+			case pam.PromptEchoOn:
+				return username, nil
+			case pam.PromptEchoOff:
+				return password, nil
+			}
+			return "", errors.New("Unrecognized message")
+		})
+		if err != nil {
+			logger.Error(err)
+		}
+		err = tr.SetItem(pam.Ruser, username)
+		if err != nil {
+			logger.Error(err)
+		}
+		err = tr.Authenticate(0)
+		if err != nil {
+			logger.Error(err)
+			w.WriteHeader(401)
+			w.Write([]byte(err.Error()))
+			return
+		}
 	}
 	u2 := user{username, []string{"admin", "user"}}
 	gcm, _ := cipher.NewGCM(ciph)
@@ -1070,21 +1121,22 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request, u *user, params map
 		Name:    "RACS_TOKEN",
 		Value:   hex.EncodeToString(out),
 		Path:    "/",
-		Expires: time.Now().Add(24 * time.Hour),
+		Expires: time.Now().Add(28 * time.Hour),
 	}
 	http.SetCookie(w, &cookie)
 	action := params["action"]
-	redirect := params["redirect"]
 	if len(action) > 0 {
 		query, _ := url.ParseQuery(params["params"])
 		params := make(map[string]string)
 		for name, values := range query {
 			params[name] = values[0]
 		}
-		handleAction(action, w, r, &u2, params)
-	} else if len(redirect) > 0 {
-		w.Header().Add("Location", redirect)
-		w.WriteHeader(303)
+		if action == "redirect" {
+			w.Header().Add("Location", params["redirect"])
+			w.WriteHeader(303)
+		} else {
+			handleAction(action, w, r, &u2, params)
+		}
 	} else {
 		w.WriteHeader(200)
 		w.Write([]byte(username))
@@ -1310,6 +1362,7 @@ func projectUpdateEvent(p *project) {
 		"triggers":       triggers,
 		"environment":    environment,
 		"tag":            p.tag,
+		"group":          p.group,
 	})
 }
 
@@ -1342,9 +1395,10 @@ func handleProjectUpdate(w http.ResponseWriter, r *http.Request, u *user, params
 			p.packageSpec = ""
 		}
 		p.tag = params["tag"]
+		p.group = params["group"]
 		p.protected = params["protected"] != ""
-		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ? WHERE id = ?`,
-			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.id)
+		db.Exec(`UPDATE projects SET name = ?, labels = ?, source = ?, branch = ?, buildSpec = ?, prepackageSpec = ?, packageSpec = ?, protected = ?, "group" = ? WHERE id = ?`,
+			p.name, p.labels, p.url, p.branch, p.buildSpec, p.prepackageSpec, p.packageSpec, p.protected, p.group, p.id)
 		projectUpdateEvent(p)
 		exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "remote", "set-url", "origin", p.url).Output()
 		redirect := params["redirect"]
@@ -2150,12 +2204,26 @@ func main() {
 	var sslCert, sslKey string
 	var port int
 	var limit int64
+	var ssoConfig string
 	flag.StringVar(&sslCert, "ssl-cert", "", "SSL cert")
 	flag.StringVar(&sslKey, "ssl-key", "", "SSL key")
 	flag.BoolVar(&noLogin, "no-login", false, "Allow all actions without login")
 	flag.IntVar(&port, "port", 8080, "Web server port")
 	flag.Int64Var(&limit, "limit", 8, "Job limit")
+	flag.StringVar(&ssoConfig, "sso-config", "", "SSO config file")
 	flag.Parse()
+
+	if len(ssoConfig) > 0 {
+		content, err := ioutil.ReadFile(ssoConfig)
+		if err != nil {
+			logger.Fatal("Error when opening file: ", err)
+		}
+		err = json.Unmarshal(content, &sso)
+		if err != nil {
+			logger.Fatal("Error when opening file: ", err)
+		}
+		use_sso = true
+	}
 
 	logger.Infof("Set job limit to %d", limit)
 
@@ -2268,7 +2336,7 @@ func main() {
 		cr := &credential{id, name, credentialDecrypt(value), project, request, time.Unix(expiry, 0), time.Unix(updated, 0), description}
 		credentials[cr.id] = cr
 	}
-	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tag FROM projects`)
+	rows, err = db.Query(`SELECT id, name, labels, source, branch, buildSpec, prepackageSpec, packageSpec, buildHash, state, version, protected, tag, "group" FROM projects`)
 	for rows.Next() {
 		var id int
 		var name string
@@ -2283,7 +2351,8 @@ func main() {
 		var version int
 		var protected int
 		var tag string
-		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &state, &version, &protected, &tag)
+		var group string
+		err := rows.Scan(&id, &name, &labels, &source, &branch, &buildSpec, &prepackageSpec, &packageSpec, &buildHash, &state, &version, &protected, &tag, &group)
 		if err != nil {
 			logger.Error(err)
 		}
@@ -2296,7 +2365,7 @@ func main() {
 			make(chan taskRequest, 10),
 			make(map[*project]trigger),
 			make(map[string]*credential),
-			nil, nil, nil, make([]*project, 0), "", tag,
+			nil, nil, nil, make([]*project, 0), "", tag, group,
 		}
 		out, err := exec.Command("git", "-C", fmt.Sprintf("%s/%d/workspace/source", projectAbs, p.id), "rev-parse", "HEAD").Output()
 		if err == nil {
@@ -2435,6 +2504,7 @@ func main() {
 	templates, _ = template.ParseGlob("templates/*")
 
 	handlers["/events"] = handleEvents
+	handlers["/login"] = handleLogin
 	handlers["/user/current"] = handleUserCurrent
 	handlers["/user/login"] = handleUserLogin
 	handlers["/user/logout"] = handleUserLogout
