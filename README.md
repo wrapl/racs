@@ -23,7 +23,7 @@ It is deliberately minimal in options, with a fixed set of build steps for all p
 
 * Hard-coded to use ``podman`` for all image builds. It is expected that ``racs`` is running on its own server or container with a working ``podman`` available. This may become configurable in the future.
 * Only supports PAM based authentication, authenticating against the local users. With ``racs`` running on its own server, this should be sufficient. This may become configurable in the future.
-* Fixed build steps for all projects: *clean* &#8594; *clone* &#8594; *prepare* &#8594; *pull* &#8594; *build* &#8594; *pacakge* &#8594; *push*.
+* Fixed build steps for all projects: *clean* &#8594; *clone* &#8594; *prepare* &#8594; *pull* &#8594; *build* &#8594; *package* &#8594; *push*.
 
 ## Installation
 
